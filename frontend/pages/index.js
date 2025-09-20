@@ -7,8 +7,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [stats, setStats] = useState(null);
-  const [summaryLanguage, setSummaryLanguage] = useState('tamil');
   const [summaryEnglish, setSummaryEnglish] = useState('');
+  const [originalEnglish, setOriginalEnglish] = useState('');
   const [translating, setTranslating] = useState(false);
   const [playingAudio, setPlayingAudio] = useState(null);
   const [chatQuestion, setChatQuestion] = useState('');
@@ -16,7 +16,6 @@ export default function Home() {
   const [chatLoading, setChatLoading] = useState(false);
   const [useTransliteration, setUseTransliteration] = useState(true);
   const [previewTamil, setPreviewTamil] = useState('');
-  const [useMyMemory, setUseMyMemory] = useState(true);
   const [translationMethod, setTranslationMethod] = useState('');
 
 
@@ -30,8 +29,8 @@ export default function Home() {
     setError('');
     setSummary('');
     setStats(null);
-    setSummaryLanguage('tamil');
     setSummaryEnglish('');
+    setOriginalEnglish('');
 
     try {
       const res = await axios.post('http://127.0.0.1:8000/summarize', {
@@ -41,10 +40,6 @@ export default function Home() {
       });
       setInputText(res.data.original);
       
-      if (res.data.summary_english) {
-        setSummaryEnglish(res.data.summary_english);
-      }
-      
       setSummary(res.data.summary);
       setStats({
         originalLength: res.data.stats.original_length,
@@ -52,6 +47,22 @@ export default function Home() {
         compressionRatio: res.data.stats.compression_ratio,
         mode: res.data.mode
       });
+      
+      // Set translations if available from auto-translate
+      if (res.data.summary_english) {
+        setSummaryEnglish(res.data.summary_english);
+        setTranslationMethod('Google Translate (Auto)');
+      }
+      if (res.data.original_english) {
+        setOriginalEnglish(res.data.original_english);
+      }
+      
+      // If auto-translation didn't work, trigger manual translation
+      if (!res.data.summary_english && res.data.summary) {
+        setTimeout(() => {
+          handleTranslate();
+        }, 500);
+      }
       
     } catch (err) {
       console.error(err);
@@ -62,36 +73,27 @@ export default function Home() {
   };
 
   const handleTranslate = async () => {
-    if (!summary.trim()) {
+    if (!summary.trim() || !inputText.trim()) {
       setError('Please summarize text first before translating');
       return;
     }
 
-    // If currently showing English, switch back to Tamil
-    if (summaryLanguage === 'english') {
-      setSummaryLanguage('tamil');
+    if (summaryEnglish && originalEnglish) {
       return;
     }
 
-    // If we have English translation cached, switch to English
-    if (summaryEnglish && summaryEnglish.trim()) {
-      setSummaryLanguage('english');
-      return;
-    }
-
-    // Otherwise, fetch English translation
     setTranslating(true);
     setError('');
 
     try {
-      const res = await axios.post('http://127.0.0.1:8000/translate-summary', {
-        summary_text: summary,
-        use_mymemory: useMyMemory
+      const res = await axios.post('http://127.0.0.1:8000/translate', {
+        original_text: inputText,
+        summary_text: summary
       });
       
       setSummaryEnglish(res.data.summary_english);
-      setTranslationMethod(res.data.translation_method);
-      setSummaryLanguage('english');
+      setOriginalEnglish(res.data.original_english);
+      setTranslationMethod(res.data.translation_method || 'Google Translate');
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.detail || 'Error translating text. Please try again.');
@@ -184,15 +186,13 @@ export default function Home() {
     }
   };
 
-
-
   const clearAll = () => {
     setInputText('');
     setSummary('');
     setError('');
     setStats(null);
-    setSummaryLanguage('tamil');
     setSummaryEnglish('');
+    setOriginalEnglish('');
     setTranslationMethod('');
     setPlayingAudio(null);
     setChatQuestion('');
@@ -201,7 +201,7 @@ export default function Home() {
 
   return (
     <div style={{
-      maxWidth: '800px',
+      maxWidth: '1200px',
       margin: '20px auto',
       padding: '20px',
       fontFamily: 'Arial, sans-serif',
@@ -260,46 +260,26 @@ export default function Home() {
         />
       </div>
 
-
-
-      <div style={{ marginBottom: '20px' }}>
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={useMyMemory}
-              onChange={(e) => setUseMyMemory(e.target.checked)}
-              style={{ transform: 'scale(1.2)' }}
-            />
-            <span style={{ color: '#2c3e50', fontSize: '14px', fontWeight: 'bold' }}>
-              🌐 Use MyMemory API for Translation (Better Quality)
-            </span>
-          </label>
-          <div style={{ fontSize: '12px', color: '#7f8c8d', marginLeft: '28px', marginTop: '2px' }}>
-            {useMyMemory ? '✅ High-quality online translation' : '📖 Basic dictionary translation'}
-          </div>
-        </div>
-        
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button
-            style={{
-              padding: '12px 24px',
-              backgroundColor: loading ? '#95a5a6' : '#3498db',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: '16px',
-              fontWeight: 'bold',
-              transition: 'background-color 0.3s'
-            }}
-            onClick={handleSummarize}
-            disabled={loading}
-          >
-            {loading ? '⏳ Summarizing...' : '🔍 Summarize'}
-          </button>
-        
-        {summary && (
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+        <button
+          style={{
+            padding: '12px 24px',
+            backgroundColor: loading ? '#95a5a6' : '#3498db',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            fontSize: '16px',
+            fontWeight: 'bold',
+            transition: 'background-color 0.3s'
+          }}
+          onClick={handleSummarize}
+          disabled={loading}
+        >
+          {loading ? '⏳ Summarizing...' : '🔍 Summarize'}
+        </button>
+      
+        {summary && !summaryEnglish && (
           <button
             style={{
               padding: '12px 24px',
@@ -315,28 +295,25 @@ export default function Home() {
             onClick={handleTranslate}
             disabled={translating}
           >
-            {translating ? '⏳ Translating...' : 
-             summaryLanguage === 'tamil' ? '🌐 Translate to English' : '🌐 Show Tamil'}
+            {translating ? '⏳ Translating...' : '🌐 Translate'}
           </button>
         )}
 
-          
-          <button
-            style={{
-              padding: '12px 24px',
-              backgroundColor: '#e74c3c',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '16px',
-              fontWeight: 'bold'
-            }}
-            onClick={clearAll}
-          >
-            🗑️ Clear
-          </button>
-        </div>
+        <button
+          style={{
+            padding: '12px 24px',
+            backgroundColor: '#e74c3c',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '16px',
+            fontWeight: 'bold'
+          }}
+          onClick={clearAll}
+        >
+          🗑️ Clear
+        </button>
       </div>
 
       {error && (
@@ -355,56 +332,102 @@ export default function Home() {
       {summary && (
         <div style={{
           marginTop: '30px',
-          padding: '20px',
-          backgroundColor: 'white',
-          border: '2px solid #27ae60',
-          borderRadius: '8px'
+          display: 'grid',
+          gridTemplateColumns: summaryEnglish ? '1fr 1fr' : '1fr',
+          gap: '20px'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
-            <h3 style={{ color: '#27ae60', margin: 0 }}>📝 Summary ({summaryLanguage === 'tamil' ? 'Tamil' : 'English'})</h3>
-            <button
-              style={{
-                padding: '6px 12px',
-                backgroundColor: playingAudio === 'summary' ? '#95a5a6' : '#e67e22',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: playingAudio === 'summary' ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-                fontWeight: 'bold'
-              }}
-              onClick={() => playTTS(summaryLanguage === 'tamil' ? summary : summaryEnglish, summaryLanguage === 'tamil' ? 'ta' : 'en', 'summary')}
-              disabled={playingAudio === 'summary'}
-            >
-              {playingAudio === 'summary' ? '🔊 Playing...' : `🔊 Play ${summaryLanguage === 'tamil' ? 'Tamil' : 'English'}`}
-            </button>
-          </div>
-          <p style={{
-            fontSize: '16px',
-            lineHeight: '1.6',
-            color: '#2c3e50',
-            marginBottom: '15px'
+          {/* Tamil Summary */}
+          <div style={{
+            padding: '20px',
+            backgroundColor: 'white',
+            border: '2px solid #27ae60',
+            borderRadius: '8px'
           }}>
-            {summaryLanguage === 'tamil' ? summary : summaryEnglish}
-          </p>
-          
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+              <h3 style={{ color: '#27ae60', margin: 0 }}>📝 Summary (Tamil)</h3>
+              <button
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: playingAudio === 'summary-tamil' ? '#95a5a6' : '#e67e22',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: playingAudio === 'summary-tamil' ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 'bold'
+                }}
+                onClick={() => playTTS(summary, 'ta', 'summary-tamil')}
+                disabled={playingAudio === 'summary-tamil'}
+              >
+                {playingAudio === 'summary-tamil' ? '🔊 Playing...' : '🔊 Play Tamil'}
+              </button>
+            </div>
+            <p style={{
+              fontSize: '16px',
+              lineHeight: '1.6',
+              color: '#2c3e50',
+              marginBottom: '15px'
+            }}>
+              {summary}
+            </p>
+          </div>
+
+          {/* English Summary */}
+          {summaryEnglish && (
+            <div style={{
+              padding: '20px',
+              backgroundColor: 'white',
+              border: '2px solid #3498db',
+              borderRadius: '8px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+                <h3 style={{ color: '#3498db', margin: 0 }}>📝 Summary (English)</h3>
+                <button
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: playingAudio === 'summary-english' ? '#95a5a6' : '#e67e22',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: playingAudio === 'summary-english' ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 'bold'
+                  }}
+                  onClick={() => playTTS(summaryEnglish, 'en', 'summary-english')}
+                  disabled={playingAudio === 'summary-english'}
+                >
+                  {playingAudio === 'summary-english' ? '🔊 Playing...' : '🔊 Play English'}
+                </button>
+              </div>
+              <p style={{
+                fontSize: '16px',
+                lineHeight: '1.6',
+                color: '#2c3e50',
+                marginBottom: '15px'
+              }}>
+                {summaryEnglish}
+              </p>
+            </div>
+          )}
+
+          {/* Stats - spans full width */}
           {stats && (
             <div style={{
+              gridColumn: summaryEnglish ? '1 / -1' : '1',
               padding: '10px',
               backgroundColor: '#f8f9fa',
               borderRadius: '4px',
               fontSize: '14px',
-              color: '#6c757d'
+              color: '#6c757d',
+              textAlign: 'center'
             }}>
               📊 Original: {stats.originalLength} chars | Summary: {stats.summaryLength} chars | 
               Compression: {stats.compressionRatio}% | Model: {stats.mode}
-              {translationMethod && summaryLanguage === 'english' && (
+              {translationMethod && summaryEnglish && (
                 <span> | Translation: {translationMethod}</span>
               )}
             </div>
           )}
-          
-
         </div>
       )}
 
@@ -543,10 +566,6 @@ export default function Home() {
           </div>
         </div>
       )}
-
-
-
-
     </div>
   );
 }

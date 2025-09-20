@@ -9,6 +9,7 @@ import io
 import requests
 from gtts import gTTS
 import nltk
+# from googletrans import Translator
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.corpus import stopwords
 from nltk.tag import pos_tag
@@ -30,6 +31,9 @@ try:
     nltk.data.find('taggers/averaged_perceptron_tagger')
 except LookupError:
     nltk.download('averaged_perceptron_tagger')
+
+# Initialize Google Translator
+# translator = Translator()
 
 # Initialize IndicBART model for summarization
 print("Loading IndicBART model for multilingual summarization...")
@@ -416,45 +420,7 @@ def scrape_article_text(url):
         else:
             raise Exception(f"Failed to scrape article: {str(e)}")
 
-def translate_text_chunks(text, source_lang='ta', target_lang='en', chunk_size=400):
-    """Translate text in chunks using MyMemory API"""
-    try:
-        # Split text into chunks
-        chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
-        translated_chunks = []
-        
-        for chunk in chunks:
-            if chunk.strip():
-                result = mymemory_translate(chunk, source_lang, target_lang)
-                translated_chunks.append(result)
-        
-        return ' '.join(translated_chunks)
-        
-    except Exception as e:
-        print(f"Translation failed: {e}")
-        return fallback_translate(text)
 
-def mymemory_translate(text, from_lang='ta', to_lang='en'):
-    """Translate using MyMemory API (free, no API key required)"""
-    try:
-        url = 'https://api.mymemory.translated.net/get'
-        params = {
-            'q': text,
-            'langpair': f'{from_lang}|{to_lang}'
-        }
-        
-        response = requests.get(url, params=params, timeout=10)
-        if response.status_code == 200:
-            result = response.json()
-            if result and 'responseData' in result and 'translatedText' in result['responseData']:
-                return result['responseData']['translatedText']
-        
-        # Fallback to simple translation
-        return fallback_translate(text)
-        
-    except Exception as e:
-        print(f"MyMemory translation error: {e}")
-        return fallback_translate(text)
 
 def fallback_translate(text):
     """Simple fallback translation using word mappings"""
@@ -479,15 +445,134 @@ def fallback_translate(text):
     
     return ' '.join(translated_words)
 
-def translate_text(text, source_lang='ta', target_lang='en', use_mymemory=True):
-    """Main translation function with chunking support"""
-    if not use_mymemory:
-        return fallback_translate(text)
+def google_translate_api(text, source_lang='ta', target_lang='en'):
+    """Translate using Google Translate API via HTTP request"""
+    if not text or not text.strip():
+        return ""
+        
+    # Limit text length
+    if len(text) > 5000:
+        text = text[:5000]
     
-    if len(text) > 400:
-        return translate_text_chunks(text, source_lang, target_lang)
-    else:
-        return translate_text_chunks(text, source_lang, target_lang, len(text))
+    try:
+        import urllib.parse
+        encoded_text = urllib.parse.quote(text)
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={source_lang}&tl={target_lang}&dt=t&q={encoded_text}"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            result = response.json()
+            if result and result[0] and result[0][0] and result[0][0][0]:
+                translated = ''.join([item[0] for item in result[0] if item[0]])
+                print(f"Google Translate successful: {translated[:50]}...")
+                return translated
+        
+        raise Exception("Google Translate API failed")
+        
+    except Exception as e:
+        print(f"Google Translate API error: {e}")
+        raise e
+
+def bing_translate_api(text, source_lang='ta', target_lang='en'):
+    """Translate using Bing Translator API"""
+    if not text or not text.strip():
+        return ""
+        
+    try:
+        import urllib.parse
+        encoded_text = urllib.parse.quote(text)
+        url = f"https://www.bing.com/ttranslatev3?isVertical=1&&IG=1234567890AB&IID=translator.5028.1"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        
+        data = {
+            'fromLang': source_lang,
+            'toLang': target_lang,
+            'text': text
+        }
+        
+        response = requests.post(url, headers=headers, data=data, timeout=10)
+        if response.status_code == 200:
+            result = response.json()
+            if result and result[0] and 'translations' in result[0] and result[0]['translations']:
+                translated = result[0]['translations'][0]['text']
+                print(f"Bing Translate successful: {translated[:50]}...")
+                return translated
+        
+        raise Exception("Bing Translate API failed")
+        
+    except Exception as e:
+        print(f"Bing Translate API error: {e}")
+        raise e
+
+def mymemory_translate_api(text, source_lang='ta', target_lang='en'):
+    """Translate using MyMemory API"""
+    if not text or not text.strip():
+        return ""
+        
+    try:
+        url = 'https://api.mymemory.translated.net/get'
+        params = {
+            'q': text,
+            'langpair': f'{source_lang}|{target_lang}'
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 200:
+            result = response.json()
+            if result and 'responseData' in result and 'translatedText' in result['responseData']:
+                translated = result['responseData']['translatedText']
+                print(f"MyMemory Translate successful: {translated[:50]}...")
+                return translated
+        
+        raise Exception("MyMemory API failed")
+        
+    except Exception as e:
+        print(f"MyMemory API error: {e}")
+        raise e
+
+def translate_text_with_service(text, source_lang='ta', target_lang='en'):
+    """Translation priority: MyMemory -> Bing (long text) -> Google -> Fallback"""
+    if not text or not text.strip():
+        return "", "None"
+    
+    # Try MyMemory first (best for short text)
+    if len(text) <= 500:
+        try:
+            result = mymemory_translate_api(text, source_lang, target_lang)
+            return result, "MyMemory API"
+        except Exception as e:
+            print(f"MyMemory failed: {e}")
+    
+    # Try Bing for longer text or if MyMemory failed
+    try:
+        result = bing_translate_api(text, source_lang, target_lang)
+        return result, "Bing Translator"
+    except Exception as e:
+        print(f"Bing Translate failed: {e}")
+    
+    # Try Google Translate as fallback
+    try:
+        result = google_translate_api(text, source_lang, target_lang)
+        return result, "Google Translate"
+    except Exception as e:
+        print(f"Google Translate failed: {e}")
+    
+    # Final fallback to word mapping
+    print("All translation services failed, using word mapping fallback")
+    return fallback_translate(text), "Fallback Dictionary"
+
+def translate_text(text, source_lang='ta', target_lang='en'):
+    """Simple wrapper for backward compatibility"""
+    result, _ = translate_text_with_service(text, source_lang, target_lang)
+    return result
 
 app = FastAPI(title='Tamil News Summarizer API - IndicBART', version='2.0.0')
 
@@ -507,11 +592,9 @@ class NewsInput(BaseModel):
 class TranslateInput(BaseModel):
     original_text: str
     summary_text: str
-    use_mymemory: bool = True
 
 class TranslateSummaryInput(BaseModel):
     summary_text: str
-    use_mymemory: bool = True
 
 class TTSInput(BaseModel):
     text: str
@@ -530,7 +613,7 @@ def root():
     return {
         "message": "Tamil News Summarizer API with IndicBART",
         "model": "IndicBART (ai4bharat/indicbart-ss)" if use_ai_model else "Extractive Fallback",
-        "features": ["Summarization", "Translation (MyMemory API + Fallback)", "Text-to-Speech", "Q&A Chatbot", "Transliteration"],
+        "features": ["Summarization", "Translation (Google Translate)", "Text-to-Speech", "Q&A Chatbot", "Transliteration"],
         "status": "ready"
     }
 
@@ -548,13 +631,25 @@ def summarize(news: NewsInput):
             summary = extractive_summary(news.text, target_compression=0.45)
             mode = "Extractive"
         
-        # Auto-translate for text input (always use MyMemory for auto-translate)
+        # Auto-translate using multiple services
+        original_english = None
+        summary_english = None
+        translation_service = None
+        
         try:
-            original_english = translate_text(news.text)
-            summary_english = translate_text(summary)
-        except:
-            original_english = None
-            summary_english = None
+            print(f"Attempting to translate original text: {news.text[:100]}...")
+            original_english, service1 = translate_text_with_service(news.text)
+            print(f"Original translation successful: {original_english[:100] if original_english else 'None'}...")
+        except Exception as e:
+            print(f"Original text translation failed: {e}")
+            
+        try:
+            print(f"Attempting to translate summary: {summary[:100]}...")
+            summary_english, service2 = translate_text_with_service(summary)
+            translation_service = service2
+            print(f"Summary translation successful: {summary_english[:100] if summary_english else 'None'}...")
+        except Exception as e:
+            print(f"Summary translation failed: {e}")
         
         response = {
             'original': news.text,
@@ -571,6 +666,7 @@ def summarize(news: NewsInput):
         if original_english and summary_english:
             response['original_english'] = original_english
             response['summary_english'] = summary_english
+            response['translation_service'] = translation_service
         
         return response
     
@@ -585,15 +681,15 @@ def translate(translate_input: TranslateInput):
         if not translate_input.original_text.strip() or not translate_input.summary_text.strip():
             raise HTTPException(status_code=400, detail="Text cannot be empty")
         
-        original_english = translate_text(translate_input.original_text, use_mymemory=translate_input.use_mymemory)
-        summary_english = translate_text(translate_input.summary_text, use_mymemory=translate_input.use_mymemory)
+        original_english, service1 = translate_text_with_service(translate_input.original_text)
+        summary_english, service2 = translate_text_with_service(translate_input.summary_text)
         
         return {
             'original_tamil': translate_input.original_text,
             'summary_tamil': translate_input.summary_text,
             'original_english': original_english,
             'summary_english': summary_english,
-            'translation_method': 'MyMemory API' if translate_input.use_mymemory else 'Fallback Dictionary',
+            'translation_method': service2,
             'status': 'success'
         }
     
@@ -606,12 +702,12 @@ def translate_summary(translate_input: TranslateSummaryInput):
         if not translate_input.summary_text.strip():
             raise HTTPException(status_code=400, detail="Summary text cannot be empty")
         
-        summary_english = translate_text(translate_input.summary_text, use_mymemory=translate_input.use_mymemory)
+        summary_english, service = translate_text_with_service(translate_input.summary_text)
         
         return {
             'summary_tamil': translate_input.summary_text,
             'summary_english': summary_english,
-            'translation_method': 'MyMemory API' if translate_input.use_mymemory else 'Fallback Dictionary',
+            'translation_method': service,
             'status': 'success'
         }
     
