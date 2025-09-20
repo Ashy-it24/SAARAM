@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+torch
+transformers
+requests
+gtts
+beautifulsoup4
+nltk
+pydantic

@@ -1,0 +1,16 @@
+{
+  "name": "tamil-news-summarizer-frontend",
+  "version": "1.0.0",
+  "description": "Tamil News Summarizer Frontend",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "axios": "^1.12.2",
+    "next": "^15.5.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  }
+}
